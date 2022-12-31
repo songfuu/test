@@ -1,0 +1,213 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="initial-scale=1,maximum-scale=1,user-scalable=no"
+  />
+
+<title>世界宗教分布图</title>
+
+<link rel="stylesheet" href="https://js.arcgis.com/4.25/esri/themes/light/main.css" />
+<script src="https://js.arcgis.com/4.25/"></script>
+
+<style>
+  html, body, #viewDiv {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  #infoDiv {
+    background: white;
+    padding: 10px;
+  }
+</style>
+
+<script>
+  require([
+    "esri/WebMap",
+    "esri/views/MapView",
+    "esri/layers/FeatureLayer",
+    "esri/widgets/Legend",
+    "esri/widgets/Expand",
+    "esri/smartMapping/labels/clusters",
+    "esri/smartMapping/popup/clusters"
+  ], (Map, MapView, FeatureLayer, Legend, Expand,
+    clusterLabelCreator, clusterPopupCreator
+  ) => {
+
+    const serviceUrl =
+      "https://services.arcgis.com/V6ZHFr6zdgNZuVG0/ArcGIS/rest/services/Places_of_Worship/FeatureServer/0";
+    const layer = new FeatureLayer({
+      url: serviceUrl,
+      title: "Places of worship",
+      outFields: [ "name", "religion", "denomination" ],
+      popupTemplate: {
+        title: "{name}",
+        content: [
+          {
+            type: "fields",
+            fieldInfos: [
+              {
+                fieldName: "religion"
+              },
+              {
+                fieldName: "denomination"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    const map = new Map({
+      basemap: "gray-vector",
+      layers: [ layer ]
+    });
+
+    const view = new MapView({
+      container: "viewDiv",
+      map,
+      center: [ 113.665412,34.757975 ],
+      zoom: 4
+    });
+
+    // Override the default symbol representing the cluster extent
+    view.popup.viewModel.selectedClusterBoundaryFeature.symbol = {
+      type: "simple-fill",
+      style: "solid",
+      color: "rgba(50,50,50,0.2)",
+      outline: {
+        width: 0.5,
+        color: "rgba(50,50,50,0.3)"
+      }
+    }
+
+    const legend = new Legend({
+      view,
+      container: "legendDiv"
+    });
+
+    const infoDiv = document.getElementById("infoDiv");
+    view.ui.add(
+      new Expand({
+        view,
+        content: infoDiv,
+        expandIconClass: "esri-icon-layer-list",
+        expanded: true
+      }), "top-right");
+
+
+    layer.when()
+      .then(generateClusterConfig)
+      .then((featureReduction) => {
+
+        layer.featureReduction = featureReduction;
+
+        const toggleButton = document.getElementById("toggle-cluster");
+        toggleButton.addEventListener("click", toggleClustering);
+
+        // To turn off clustering on a layer, set the
+        // featureReduction property to null
+        function toggleClustering() {
+          if(isWithinScaleThreshold()){
+            let fr = layer.featureReduction;
+            layer.featureReduction =
+              fr && fr.type === "cluster" ? null : featureReduction;
+          }
+          toggleButton.innerText =
+            toggleButton.innerText === "Enable Clustering"
+              ? "Disable Clustering"
+              : "Enable Clustering";
+        }
+
+        view.whenLayerView(layer).then((layerView) => {
+          const filterSelect = document.getElementById("filter");
+          // filters the layer using a definitionExpression
+          // based on a religion selected by the user
+          filterSelect.addEventListener("change", (event) => {
+            const newValue = event.target.value;
+
+            const whereClause = newValue
+              ? `religion = '${newValue}'`
+              : null;
+            layerView.filter = {
+              where: whereClause
+            };
+            // close popup for former cluster that no longer displays
+            view.popup.close();
+          });
+        });
+
+        view.watch("scale", (scale) => {
+          if(toggleButton.innerText === "Disable Clustering"){
+            layer.featureReduction = isWithinScaleThreshold() ? featureReduction : null;
+          }
+        })
+      }).catch((error) => {
+        console.error(error);
+      });
+
+    function isWithinScaleThreshold(){
+      return view.scale > 50000;
+    }
+
+
+    async function generateClusterConfig(layer){
+
+      // generates default popupTemplate
+      const popupTemplate = await clusterPopupCreator
+        .getTemplates({ layer })
+        .then(popupTemplateResponse => popupTemplateResponse.primaryTemplate.value);
+
+
+      // generates default labelingInfo
+      const { labelingInfo, clusterMinSize } = await clusterLabelCreator
+        .getLabelSchemes({ layer, view })
+        .then(labelSchemes => labelSchemes.primaryScheme );
+
+
+      return {
+        type: "cluster",
+        popupTemplate,
+        labelingInfo,
+        clusterMinSize
+      };
+    }
+
+
+  });
+</script>
+
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+  <div id="infoDiv" class="esri-widget">
+    Filter by religion:
+    <select id="filter" class="esri-select">
+      <option value="">所有</option>
+      <option value="christian">基督教</option>
+      <option value="muslim">伊斯兰教</option>
+      <option value="buddhist">佛教</option>
+	  <option value="hindu">印度教</option>
+	  <option value="shinto">神道教</option>
+      <option value="jweish">犹太教</option>   
+    </select>
+    <div style="padding-top: 10px;">
+      <button id="toggle-cluster" class="esri-button">Disable Clustering</button>
+    </div>
+    <div id="legendDiv"></div>
+	
+	<div id="text">
+	  <h1>世界宗教</h1>
+	  <p>
+	    基督教、伊斯兰教、佛教并称为世界三大宗教。这三大宗教分布有较强的区域性，如基督教在欧美的一些国家、伊斯兰教在中亚、西亚和北非一些国家、佛教在东南亚一些国家。
+	  </p>
+
+	</div>
+  </div>
+</body>
+
+</html>
